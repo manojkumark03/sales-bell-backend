@@ -62,12 +62,15 @@ wss.on('connection', (ws, request, deviceId) => {
   ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      console.log('📨 Received message from device:', deviceId, msg);
       if (msg.type === 'register_slug') {
-        await registerWebhook(msg.slug, deviceId);
-        ws.send(JSON.stringify({ type: 'slug_registered', slug: msg.slug }));
+        const result = await registerWebhook(msg.slug, deviceId);
+        ws.send(JSON.stringify({ type: 'slug_registered', slug: msg.slug, success: result }));
+        console.log(`✅ Slug "${msg.slug}" registered for device ${deviceId}`);
       }
     } catch (err) {
       console.error('Error handling message:', err);
+      ws.send(JSON.stringify({ type: 'error', message: err.message }));
     }
   });
 

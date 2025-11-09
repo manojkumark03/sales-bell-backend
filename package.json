@@ -1,14 +1,24 @@
 {
-  "name": "sales-bell-backend",
+  "name": "sales-bell-server",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "Sales Bell notification server with Turso database",
+  "main": "app.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node app.js",
+    "dev": "nodemon app.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.4.3",
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "body-parser": "^1.20.2",
-    "ws": "^8.14.2"
+    "ws": "^8.15.1",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

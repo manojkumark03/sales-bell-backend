@@ -7,8 +7,8 @@ const { createClient } = require('@libsql/client');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// NEW: Cloudflare Worker URL for push notifications
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://salesbell-notifications.manojkumarcpyk.workers.dev';
+// Cloudflare Worker URL for push notifications
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 app.use(cors());
 app.use(express.json());
@@ -80,9 +80,9 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
-// NEW: Send webhook to Cloudflare Worker for push notifications
+// Send webhook to Cloudflare Worker for push notifications
 async function sendWebhook(topic, message) {
-  if (!WEBHOOK_URL || WEBHOOK_URL.includes('YOUR-SUBDOMAIN')) {
+  if (!WEBHOOK_URL) {
     console.log('⚠️  Webhook URL not configured - skipping push notification');
     return;
   }
@@ -140,7 +140,7 @@ async function publish(topic, data) {
     console.error('DB error:', err);
   }
 
-  // Send to WebSocket subscribers (instant mode users)
+  // Count WebSocket subscribers
   const subs = subscribers.get(topic);
   let webSocketCount = 0;
   if (subs && subs.size > 0) {
@@ -154,11 +154,15 @@ async function publish(topic, data) {
     console.log(`📤 Sent to ${webSocketCount} WebSocket subscribers (instant mode)`);
   }
 
-  // NEW: Send webhook for push notifications (users not using instant mode)
-  // This runs in parallel, doesn't block the response
-  sendWebhook(topic, msg).catch(err => {
-    console.error('Webhook error:', err);
-  });
+  // Send webhook for push notifications ONLY if no WebSocket subscribers
+  // This prevents duplicate notifications
+  if (webSocketCount === 0) {
+    sendWebhook(topic, msg).catch(err => {
+      console.error('Webhook error:', err);
+    });
+  } else {
+    console.log('ℹ️  Skipping push notification (users connected via WebSocket)');
+  }
 
   return { id, message: msg };
 }
@@ -171,7 +175,7 @@ app.get('/', (req, res) => {
     features: ['WebSocket', 'Push Notifications'],
     topics: subscribers.size,
     subscribers: Array.from(subscribers.values()).reduce((sum, set) => sum + set.size, 0),
-    webhook_configured: !WEBHOOK_URL.includes('YOUR-SUBDOMAIN')
+    webhook_configured: !!WEBHOOK_URL
   });
 });
 
@@ -181,25 +185,21 @@ app.post('/:topic', async (req, res) => {
   
   let data;
   
-  // Check Content-Type
   const contentType = req.headers['content-type'] || '';
   
   if (contentType.includes('application/json')) {
-    // JSON body
     data = {
       message: req.body.message || 'New notification',
       title: req.body.title || null,
       priority: parseInt(req.body.priority || 3)
     };
   } else if (typeof req.body === 'string') {
-    // Plain text message
     data = { 
       message: req.body,
       title: null,
       priority: 3
     };
   } else {
-    // Fallback
     data = {
       message: req.query.message || 'New notification',
       title: req.query.title || null,
@@ -259,6 +259,24 @@ app.get('/:topic/json', async (req, res) => {
   }
 });
 
+// Delete all messages for a topic
+app.delete('/:topic/messages', async (req, res) => {
+  const { topic } = req.params;
+  
+  try {
+    const result = await db.execute({
+      sql: 'DELETE FROM messages WHERE topic = ?',
+      args: [topic]
+    });
+    
+    console.log(`🗑️  Deleted all messages for: ${topic}`);
+    res.json({ success: true, deleted: result.rowsAffected || 0 });
+  } catch (err) {
+    console.error('Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/v1/health', (req, res) => {
   res.json({ healthy: true });
 });
@@ -266,7 +284,7 @@ app.get('/v1/health', (req, res) => {
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 WebSocket ready on ws://localhost:${PORT}`);
-  console.log(`📲 Push notifications: ${WEBHOOK_URL.includes('YOUR-SUBDOMAIN') ? '❌ Not configured' : '✅ Enabled'}`);
+  console.log(`📲 Push notifications: ${WEBHOOK_URL ? '✅ Enabled' : '❌ Not configured'}`);
   console.log(`\n📝 Usage:`);
   console.log(`   curl -X POST http://localhost:${PORT}/your-topic -H "Content-Type: application/json" -d '{"title":"Hello","message":"World"}'`);
   console.log(`   curl -X POST http://localhost:${PORT}/your-topic -d "Plain text message"\n`);
